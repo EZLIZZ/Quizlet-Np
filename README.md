@@ -5,7 +5,7 @@ A multi-client quiz game written in C using TCP sockets and pthreads. Multiple p
 ⚙️ How to Compile
 Compile the server:
 
-bash
+``` bash
 gcc server.c -o server -lpthread
 Compile the client:
 
@@ -18,18 +18,18 @@ Run:
 bash
 ./server
 The server listens on TCP port 5555 and waits for clients.
-
+```
 Connect Clients
 Open separate terminals for each player. In each terminal, run:
 
-bash
+```bash
 ./client
 Follow prompts:
 
 Enter your name
 
 Answer quiz questions (A/B/C/D)
-
+```
 🎮 Game Flow
 Server waits for the required number of clients.
 
