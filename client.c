@@ -2,39 +2,45 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 
+#define SERVER_IP "127.0.0.1"
 #define PORT 5555
 #define BUFFER_SIZE 1024
 
 int main() {
     int sock;
-    struct sockaddr_in server;
+    struct sockaddr_in serverAddr;
     char buffer[BUFFER_SIZE];
-    char input[BUFFER_SIZE];
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
-    server.sin_family = AF_INET;
-    server.sin_port = htons(PORT);
-    server.sin_addr.s_addr = inet_addr("127.0.0.1");
+    if (sock < 0) {
+        perror("socket");
+        exit(1);
+    }
 
-    connect(sock, (struct sockaddr*)&server, sizeof(server));
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(PORT);
+    inet_pton(AF_INET, SERVER_IP, &serverAddr.sin_addr);
+
+    if (connect(sock, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        perror("connect");
+        exit(1);
+    }
 
     while (1) {
         memset(buffer, 0, sizeof(buffer));
-        int valread = read(sock, buffer, sizeof(buffer)-1);
-        if (valread <= 0) {
+        int bytes = read(sock, buffer, sizeof(buffer)-1);
+        if (bytes <= 0) {
+            printf("Server closed connection.\n");
             break;
         }
-        buffer[valread] = '\0';
+
         printf("%s", buffer);
 
-        if (strstr(buffer, "Enter")) {
-            fgets(input, sizeof(input), stdin);
-            write(sock, input, strlen(input));
-        }
+        // Read user input and send back
+        fgets(buffer, sizeof(buffer), stdin);
+        write(sock, buffer, strlen(buffer));
     }
 
     close(sock);

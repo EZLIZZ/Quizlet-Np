@@ -13,6 +13,7 @@
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
 #define TIMEOUT_SEC 10
+#define REQUIRED_CLIENTS 2   // How many clients before quiz starts
 
 typedef struct {
     int socket;
@@ -76,8 +77,8 @@ int main() {
     listen(serverSocket, 5);
     printf("Server running on port %d...\n", PORT);
 
-    // Accept clients until at least 1 joins
-    while (clientCount < 1) {
+    // Accept clients in a loop
+    while (1) {
         clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &addrLen);
         if (clientSocket < 0) {
             perror("accept");
@@ -109,9 +110,14 @@ int main() {
             sendToClient(clientSocket, "Server full.\n");
             close(clientSocket);
         }
+
+        // Check if we have enough clients to start
+        if (clientCount >= REQUIRED_CLIENTS) {
+            break;
+        }
     }
 
-    // Wait for at least one client to send their name
+    // Wait until all clients have entered their names
     while (1) {
         pthread_mutex_lock(&clientsMutex);
         int readyClients = 0;
@@ -122,11 +128,10 @@ int main() {
         }
         pthread_mutex_unlock(&clientsMutex);
 
-        if (readyClients >= 1) {
+        if (readyClients >= REQUIRED_CLIENTS) {
             printf("Starting quiz...\n");
             break;
         }
-
         usleep(500 * 1000);
     }
 
@@ -151,6 +156,8 @@ int main() {
 
         updateScoreboard();
     }
+
+    broadcast("Quiz finished!\n");
 
     close(serverSocket);
     return 0;
