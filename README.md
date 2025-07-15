@@ -11,11 +11,12 @@ Compile the client:
 
 bash
 gcc client.c -o client
-💻 How to Run
+```
+How to Run
 Start the Server
 Run:
 
-bash
+```bash
 ./server
 The server listens on TCP port 5555 and waits for clients.
 ```
