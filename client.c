@@ -36,11 +36,14 @@ int main() {
             break;
         }
 
+        buffer[bytes] = '\0';
         printf("%s", buffer);
 
-        // Read user input and send back
-        fgets(buffer, sizeof(buffer), stdin);
-        write(sock, buffer, strlen(buffer));
+        // Only respond if input is expected
+        if (strstr(buffer, "Enter option") || strstr(buffer, "Enter your name")) {
+            fgets(buffer, sizeof(buffer), stdin);
+            write(sock, buffer, strlen(buffer));
+        }
     }
 
     close(sock);

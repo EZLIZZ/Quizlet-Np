@@ -8,12 +8,13 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <ctype.h>
+#include <time.h>
 
 #define PORT 5555
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
 #define TIMEOUT_SEC 10
-#define REQUIRED_CLIENTS 2   // How many clients before quiz starts
+#define REQUIRED_CLIENTS 2
 
 typedef struct {
     int socket;
@@ -29,14 +30,17 @@ typedef struct {
     char correct_option;
 } QuizQuestion;
 
-// Quiz questions
 QuizQuestion quiz[] = {
-    {"Capital of France?",
-     {"A. Paris", "B. Rome", "C. Berlin", "D. Madrid"}, 'A'},
-    {"2 + 2 = ?",
-     {"A. 3", "B. 4", "C. 5", "D. 6"}, 'B'},
-    {"Unix socket programming language?",
-     {"A. Python", "B. Java", "C. C/C++", "D. HTML"}, 'C'}
+    {"Capital of France?", {"A. Paris", "B. Rome", "C. Berlin", "D. Madrid"}, 'A'},
+    {"2 + 2 = ?", {"A. 3", "B. 4", "C. 5", "D. 6"}, 'B'},
+    {"Unix socket programming language?", {"A. Python", "B. Java", "C. C/C++", "D. HTML"}, 'C'},
+    {"Largest planet in our solar system?", {"A. Earth", "B. Saturn", "C. Jupiter", "D. Mars"}, 'C'},
+    {"Who wrote 'Romeo and Juliet'?", {"A. Charles Dickens", "B. William Shakespeare", "C. Jane Austen", "D. Mark Twain"}, 'B'},
+    {"Which number is a prime?", {"A. 4", "B. 6", "C. 9", "D. 7"}, 'D'},
+    {"What does CPU stand for?", {"A. Central Processing Unit", "B. Control Power Unit", "C. Core Processing Unit", "D. Compute Performance Unit"}, 'A'},
+    {"Which animal is known as the King of the Jungle?", {"A. Tiger", "B. Lion", "C. Elephant", "D. Bear"}, 'B'},
+    {"HTML is used to?", {"A. Style a webpage", "B. Store data", "C. Structure a webpage", "D. Process forms"}, 'C'},
+    {"What is the boiling point of water (in Celsius)?", {"A. 50\u00b0C", "B. 90\u00b0C", "C. 100\u00b0C", "D. 120\u00b0C"}, 'C'}
 };
 
 ClientInfo clients[MAX_CLIENTS];
@@ -48,6 +52,7 @@ void broadcast(const char *message);
 void sendToClient(int sock, const char *message);
 void updateScoreboard();
 unsigned long getMillis();
+void shuffle(int *array, int n);
 
 int clientCount = 0;
 
@@ -77,7 +82,6 @@ int main() {
     listen(serverSocket, 5);
     printf("Server running on port %d...\n", PORT);
 
-    // Accept clients in a loop
     while (1) {
         clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &addrLen);
         if (clientSocket < 0) {
@@ -85,8 +89,7 @@ int main() {
             continue;
         }
 
-        printf("New client connected: %s:%d\n",
-            inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
+        printf("New client connected: %s:%d\n", inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
 
         pthread_mutex_lock(&clientsMutex);
         int idx = -1;
@@ -111,13 +114,9 @@ int main() {
             close(clientSocket);
         }
 
-        // Check if we have enough clients to start
-        if (clientCount >= REQUIRED_CLIENTS) {
-            break;
-        }
+        if (clientCount >= REQUIRED_CLIENTS) break;
     }
 
-    // Wait until all clients have entered their names
     while (1) {
         pthread_mutex_lock(&clientsMutex);
         int readyClients = 0;
@@ -135,12 +134,19 @@ int main() {
         usleep(500 * 1000);
     }
 
-    // Broadcast quiz questions
-    for (int q = 0; q < sizeof(quiz)/sizeof(QuizQuestion); q++) {
+    int totalQuestions = sizeof(quiz) / sizeof(QuizQuestion);
+    int indices[totalQuestions];
+    for (int i = 0; i < totalQuestions; i++) indices[i] = i;
+
+    srand(time(NULL));
+    shuffle(indices, totalQuestions);
+
+    for (int i = 0; i < 5; i++) {
+        int q = indices[i];
         char questionBuf[BUFFER_SIZE];
         snprintf(questionBuf, sizeof(questionBuf),
             "\nQ%d: %s\n%s\n%s\n%s\n%s\nEnter option (A/B/C/D): ",
-            q+1,
+            i + 1,
             quiz[q].question,
             quiz[q].options[0],
             quiz[q].options[1],
@@ -148,17 +154,14 @@ int main() {
             quiz[q].options[3]);
 
         broadcast(questionBuf);
-
         unsigned long startTime = getMillis();
         while (getMillis() - startTime < TIMEOUT_SEC * 1000) {
             usleep(500 * 1000);
         }
-
         updateScoreboard();
     }
 
     broadcast("Quiz finished!\n");
-
     close(serverSocket);
     return 0;
 }
@@ -183,26 +186,46 @@ void *clientHandler(void *arg) {
         return NULL;
     }
 
-    for (int q = 0; q < sizeof(quiz)/sizeof(QuizQuestion); q++) {
+    int totalQuestions = sizeof(quiz) / sizeof(QuizQuestion);
+    int indices[totalQuestions];
+    for (int i = 0; i < totalQuestions; i++) indices[i] = i;
+    shuffle(indices, totalQuestions);
+
+    for (int i = 0; i < 5; i++) {
+        int q = indices[i];
         memset(buffer, 0, sizeof(buffer));
-        int bytes = read(sock, buffer, sizeof(buffer)-1);
-        if (bytes <= 0) {
-            printf("Client disconnected: %s\n", clients[idx].name);
-            clients[idx].active = 0;
-            close(sock);
-            return NULL;
-        }
 
-        char answer = toupper(buffer[0]);
-        printf("Client %s answered: %c\n", clients[idx].name, answer);
+        fd_set readfds;
+        struct timeval timeout;
+        FD_ZERO(&readfds);
+        FD_SET(sock, &readfds);
+        timeout.tv_sec = TIMEOUT_SEC;
+        timeout.tv_usec = 0;
 
-        pthread_mutex_lock(&clientsMutex);
-        if (answer == quiz[q].correct_option) {
-            clients[idx].score++;
+        int activity = select(sock + 1, &readfds, NULL, NULL, &timeout);
+        if (activity > 0 && FD_ISSET(sock, &readfds)) {
+            int bytes = read(sock, buffer, sizeof(buffer)-1);
+            if (bytes <= 0) {
+                printf("Client disconnected: %s\n", clients[idx].name);
+                clients[idx].active = 0;
+                close(sock);
+                return NULL;
+            }
+
+            char answer = toupper(buffer[0]);
+            printf("Client %s answered: %c\n", clients[idx].name, answer);
+
+            pthread_mutex_lock(&clientsMutex);
+            if (answer == quiz[q].correct_option) {
+                clients[idx].score++;
+            }
+            pthread_mutex_unlock(&clientsMutex);
+        } else {
+            printf("Client %s timed out on question %d\n", clients[idx].name, i + 1);
         }
-        pthread_mutex_unlock(&clientsMutex);
     }
 
+    printf("Client %s finished the quiz.\n", clients[idx].name);
     return NULL;
 }
 
@@ -237,4 +260,13 @@ unsigned long getMillis() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+}
+
+void shuffle(int *array, int n) {
+    for (int i = n - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int temp = array[i];
+        array[i] = array[j];
+        array[j] = temp;
+    }
 }
